@@ -1,63 +1,49 @@
-import socket
-import threading
+import rpyc
+from rpyc.utils.server import ThreadedServer
 
-HOST = ''
-PORT = 5000
+class CalculadoraService(rpyc.Service):
 
-def handle_client(con, cliente):
-    print(f"[Servidor] Client conectado: {cliente}")
-    try:
-        msg = con.recv(1024)
-        N = msg.decode().split(";")
+    def on_connect(self, conn):
+        print(f"[Servidor] Client conectado: {conn._channel.stream.sock.getpeername()}")
 
-        x = float(N[0])
-        y = float(N[1])
-        op = N[2].strip()
+    def on_disconnect(self, conn):
+        print(f"[Servidor] Client desconectado")
 
-        if op == "soma":
-            z = x + y
-        elif op == "subtracao":
-            z = x - y
-        elif op == "multiplicacao":
-            z = x * y
-        elif op == "divisao":
-            if y == 0:
-                con.send("Erro: divisao por zero".encode())
-                return
-            z = x / y
-        elif op == "potencia":
-            z = x ** y
-        elif op == "modulo":
-            z = x % y
-        else:
-            con.send("Erro: operacao invalida".encode())
-            return
+    def exposed_soma(self, x, y):
+        resultado = x + y
+        print(f"[Servidor] soma({x}, {y}) = {resultado}")
+        return resultado
 
-        resultado = f"{x} {op} {y} = {z}"
-        print(f"[Servidor] {resultado} | client: {cliente}")
-        con.send(str(z).encode())
+    def exposed_subtracao(self, x, y):
+        resultado = x - y
+        print(f"[Servidor] subtracao({x}, {y}) = {resultado}")
+        return resultado
 
-    except Exception as e:
-        print(f"[Servidor] Erro com client {cliente}: {e}")
-        con.send("Erro: verifique os dados enviados".encode())
-    finally:
-        con.close()
-        print(f"[Servidor] Conexão encerrada: {cliente}")
+    def exposed_multiplicacao(self, x, y):
+        resultado = x * y
+        print(f"[Servidor] multiplicacao({x}, {y}) = {resultado}")
+        return resultado
 
-def main():
-    tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    tcp.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    orig = (HOST, PORT)
-    tcp.bind(orig)
-    tcp.listen(5)
-    print(f"[Servidor] Aguardando conexões na porta {PORT}...")
-    print(f"[Servidor] Operações disponíveis: soma, subtracao, multiplicacao, divisao, potencia, modulo")
+    def exposed_divisao(self, x, y):
+        if y == 0:
+            raise ValueError("Divisao por zero!")
+        resultado = x / y
+        print(f"[Servidor] divisao({x}, {y}) = {resultado}")
+        return resultado
 
-    while True:
-        con, cliente = tcp.accept()
-        t = threading.Thread(target=handle_client, args=(con, cliente))
-        t.start()
-        print(f"[Servidor] Threads ativas: {threading.active_count() - 1}")
+    def exposed_potencia(self, x, y):
+        resultado = x ** y
+        print(f"[Servidor] potencia({x}, {y}) = {resultado}")
+        return resultado
+
+    def exposed_modulo(self, x, y):
+        resultado = x % y
+        print(f"[Servidor] modulo({x}, {y}) = {resultado}")
+        return resultado
 
 if __name__ == "__main__":
-    main()
+    PORT = 18861
+    print(f"[Servidor] RPC escutando na porta {PORT}...")
+    print("[Servidor] Operações: soma, subtracao, multiplicacao, divisao, potencia, modulo")
+    t = ThreadedServer(CalculadoraService, port=PORT)
+    t.start()

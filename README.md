@@ -1,32 +1,35 @@
-# SD-03 — Sockets Distribuídos com Python
+# SD-04 — RPC Distribuído com Python
 
-Exemplo de sistema distribuído utilizando **sockets TCP** do Python, comunicando-se entre duas máquinas virtuais Linux com suporte a **múltiplos clients simultâneos**.
+Exemplo de sistema distribuído utilizando **RPC (Remote Procedure Call)** com a biblioteca `rpyc` do Python, comunicando-se entre duas máquinas virtuais Linux.
 
 ---
 
 ## Descritivo do Programa
 
 **O que é?**
-Uma calculadora distribuída onde o client envia dois números e uma operação ao server via socket TCP, o server realiza o cálculo e retorna o resultado. O server suporta múltiplos clients simultâneos através de threads.
+Uma calculadora distribuída onde o client chama funções no server remotamente como se fossem funções locais, utilizando o padrão RPC (Remote Procedure Call). O server expõe métodos através de uma classe de serviço e o client os invoca diretamente pelo nome.
 
 **Como funciona?**
-O server aguarda conexões na porta 5000. A cada nova conexão, cria uma thread dedicada para atender aquele client, permitindo que vários clients se conectem ao mesmo tempo sem bloqueio. O client envia os dados no formato `X;Y;operacao`, o server interpreta o protocolo, executa a operação e devolve o resultado.
+O server define uma classe `CalculadoraService` que herda de `rpyc.Service`. Cada método prefixado com `exposed_` fica disponível remotamente. O `ThreadedServer` gerencia múltiplos clients simultaneamente. O client conecta ao server via `rpyc.connect()` e chama os métodos remotos através de `c.root.metodo()`, exatamente como chamaria uma função local.
 
 **Por que isso é distribuído?**
-O processamento do cálculo acontece no server (VM 1), enquanto o client (VM 2) apenas envia os operandos e a operação desejada, recebendo somente o resultado. Cada client é identificado pelo seu IP e porta no log do server, evidenciando a comunicação entre máquinas distintas na rede.
+O cálculo é executado no server (VM 1), mas o client (VM 2) chama os métodos como se fossem locais — sem precisar conhecer a implementação. Essa transparência de localização é a essência do modelo RPC, onde a complexidade da comunicação em rede fica oculta para o programador.
+
+**Diferença para Sockets puro**
+No exemplo de Sockets (SD-03), o client precisa montar manualmente o protocolo `X;Y;operacao` e interpretar a resposta. Com RPC, o client simplesmente chama `c.root.soma(10, 5)` e recebe `15` — a serialização e comunicação são feitas automaticamente pela biblioteca.
 
 **Operações disponíveis**
 - `soma` — adição entre dois números
 - `subtracao` — subtração entre dois números
 - `multiplicacao` — multiplicação entre dois números
-- `divisao` — divisão entre dois números (com tratamento de divisão por zero)
+- `divisao` — divisão com tratamento de erro para divisão por zero
 - `potencia` — x elevado a y
 - `modulo` — resto da divisão de x por y
 
 **Tecnologias utilizadas**
-- `socket.AF_INET, socket.SOCK_STREAM` — socket TCP
-- `threading.Thread` — múltiplos clients simultâneos
-- Protocolo de comunicação com `;` separando os valores
+- `rpyc` — biblioteca de RPC para Python
+- `rpyc.Service` — classe base para expor métodos remotamente
+- `ThreadedServer` — servidor com suporte a múltiplos clients
 - `Vagrant + VirtualBox` — provisionamento das VMs Linux
 
 ---
@@ -34,14 +37,18 @@ O processamento do cálculo acontece no server (VM 1), enquanto o client (VM 2) 
 ## Arquitetura
 
 ```
-┌─────────────────────┐        socket TCP         ┌──────────────────────────────┐
+┌─────────────────────┐          rpyc RPC          ┌──────────────────────────────┐
 │   CLIENT VM         │ ────────────────────────> │   SERVER VM                  │
-│   192.168.56.11     │   envia: X;Y;operacao     │   192.168.56.10              │
+│   192.168.56.11     │   c.root.soma(10, 5)      │   192.168.56.10              │
 │                     │ <──────────────────────── │                              │
-│   client.py         │   recebe: resultado       │   server.py                  │
-└─────────────────────┘                           │   ├── Thread client 1        │
-                                                  │   ├── Thread client 2        │
-                                                  │   └── Thread client N        │
+│   client.py         │   retorna: 15             │   server.py                  │
+└─────────────────────┘                           │   CalculadoraService         │
+                                                  │   ├── exposed_soma           │
+                                                  │   ├── exposed_subtracao      │
+                                                  │   ├── exposed_multiplicacao  │
+                                                  │   ├── exposed_divisao        │
+                                                  │   ├── exposed_potencia       │
+                                                  │   └── exposed_modulo         │
                                                   └──────────────────────────────┘
 ```
 
@@ -59,7 +66,7 @@ O processamento do cálculo acontece no server (VM 1), enquanto o client (VM 2) 
 ## Estrutura do projeto
 
 ```
-sd-03-sockets/
+sd-04-rpc/
 ├── Vagrantfile
 ├── README.md
 ├── .gitignore
@@ -78,8 +85,8 @@ sd-03-sockets/
 ### 1. Clone o repositório
 
 ```bash
-git clone https://github.com/GustavoRodrigues476/sd-03-sockets
-cd sd-03-sockets
+git clone https://github.com/GustavoRodrigues476/sd-04-rpc
+cd sd-04-rpc
 ```
 
 ### 2. Suba as VMs
@@ -88,7 +95,7 @@ cd sd-03-sockets
 vagrant up
 ```
 
-> Na primeira execução o Vagrant baixa a imagem do Ubuntu (~500MB). Aguarde as duas VMs aparecerem como `ready`.
+> Na primeira execução o Vagrant baixa a imagem do Ubuntu (~500MB) e instala o `rpyc` automaticamente via script de setup. Aguarde as duas VMs aparecerem como `ready`.
 
 Se apenas uma VM subir, suba a outra manualmente:
 
@@ -118,52 +125,58 @@ python3 /vagrant/src/client.py
 
 **Terminal do server:**
 ```
-[Servidor] Aguardando conexões na porta 5000...
-[Servidor] Operações disponíveis: soma, subtracao, multiplicacao, divisao, potencia, modulo
+[Servidor] RPC escutando na porta 18861...
+[Servidor] Operações: soma, subtracao, multiplicacao, divisao, potencia, modulo
 [Servidor] Client conectado: ('192.168.56.11', 54320)
-[Servidor] Threads ativas: 1
-[Servidor] 10.0 soma 5.0 = 15.0 | client: ('192.168.56.11', 54320)
-[Servidor] Conexão encerrada: ('192.168.56.11', 54320)
-[Servidor] Client conectado: ('192.168.56.11', 54321)
-[Servidor] Threads ativas: 1
-[Servidor] 10.0 subtracao 5.0 = 5.0 | client: ('192.168.56.11', 54321)
-[Servidor] Conexão encerrada: ('192.168.56.11', 54321)
-...
+[Servidor] soma(10, 5) = 15
+[Servidor] subtracao(10, 5) = 5
+[Servidor] multiplicacao(10, 5) = 50
+[Servidor] divisao(10, 5) = 2.0
+[Servidor] potencia(2, 8) = 256
+[Servidor] modulo(10, 3) = 1
+[Servidor] Client desconectado
 ```
 
 **Terminal do client:**
 ```
-=== Calculadora Distribuída ===
-Operações disponíveis: soma, subtracao, multiplicacao, divisao, potencia, modulo
+[Client] Conectando ao servidor 192.168.56.10:18861...
 
---- SOMA ---
-[Client] Enviando: 10;5;soma
-[Client] Resultado: 15.0
+=== Calculadora Distribuída via RPC ===
 
---- SUBTRACAO ---
-[Client] Enviando: 10;5;subtracao
-[Client] Resultado: 5.0
+soma(10, 5)          = 15
+subtracao(10, 5)     = 5
+multiplicacao(10, 5) = 50
+divisao(10, 5)       = 2.0
+potencia(2, 8)       = 256
+modulo(10, 3)        = 1
 
---- MULTIPLICACAO ---
-[Client] Enviando: 10;5;multiplicacao
-[Client] Resultado: 50.0
+--- Teste de erro ---
+Erro capturado: divisao por zero!
 
---- DIVISAO ---
-[Client] Enviando: 10;5;divisao
-[Client] Resultado: 2.0
-
---- POTENCIA ---
-[Client] Enviando: 2;8;potencia
-[Client] Resultado: 256.0
-
---- MODULO ---
-[Client] Enviando: 10;3;modulo
-[Client] Resultado: 1.0
+[Client] Conexão encerrada.
 ```
 
 ---
 
 ## Solução de problemas
+
+### Erro: `ModuleNotFoundError: No module named 'rpyc'`
+
+Execute manualmente dentro da VM:
+
+```bash
+vagrant ssh server
+pip3 install rpyc
+
+vagrant ssh client
+pip3 install rpyc
+```
+
+Ou force o provisionamento novamente:
+
+```bash
+vagrant reload --provision
+```
 
 ### Erro: `timeout during server version negotiating`
 

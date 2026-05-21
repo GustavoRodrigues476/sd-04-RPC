@@ -1,42 +1,29 @@
-import socket
-import sys
+import rpyc
 
-HOST = '192.168.56.10'
-PORT = 5000
-
-OPERACOES = ["soma", "subtracao", "multiplicacao", "divisao", "potencia", "modulo"]
-
-def calcular(x, y, operacao):
-    tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    dest = (HOST, PORT)
-    tcp.connect(dest)
-
-    msg = f"{x};{y};{operacao}"
-    print(f"[Client] Enviando: {msg}")
-    tcp.send(msg.encode())
-
-    resposta = tcp.recv(1024)
-    resultado = resposta.decode()
-    print(f"[Client] Resultado: {resultado}")
-    tcp.close()
-    return resultado
+HOST = "192.168.56.10"
+PORT = 18861
 
 def main():
-    print("=== Calculadora Distribuída ===")
-    print(f"Operações disponíveis: {', '.join(OPERACOES)}\n")
+    print(f"[Client] Conectando ao servidor {HOST}:{PORT}...")
+    c = rpyc.connect(HOST, PORT)
 
-    operacoes_teste = [
-        (10, 5, "soma"),
-        (10, 5, "subtracao"),
-        (10, 5, "multiplicacao"),
-        (10, 5, "divisao"),
-        (2,  8, "potencia"),
-        (10, 3, "modulo"),
-    ]
+    print("\n=== Calculadora Distribuída via RPC ===\n")
 
-    for x, y, op in operacoes_teste:
-        print(f"\n--- {op.upper()} ---")
-        calcular(x, y, op)
+    print(f"soma(10, 5)          = {c.root.soma(10, 5)}")
+    print(f"subtracao(10, 5)     = {c.root.subtracao(10, 5)}")
+    print(f"multiplicacao(10, 5) = {c.root.multiplicacao(10, 5)}")
+    print(f"divisao(10, 5)       = {c.root.divisao(10, 5)}")
+    print(f"potencia(2, 8)       = {c.root.potencia(2, 8)}")
+    print(f"modulo(10, 3)        = {c.root.modulo(10, 3)}")
+
+    print("\n--- Teste de erro ---")
+    try:
+        c.root.divisao(10, 0)
+    except Exception as e:
+        print(f"Erro capturado: {e}")
+
+    c.close()
+    print("\n[Client] Conexão encerrada.")
 
 if __name__ == "__main__":
     main()
